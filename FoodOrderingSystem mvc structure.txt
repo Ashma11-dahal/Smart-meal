@@ -1,0 +1,44 @@
+FoodOrderingSystem
+│
+├── Presentation Layer (UI)
+│   ├── LoginPage
+│   ├── MainMenu
+│   ├── Customer Views
+│   ├── Menu Views (Admin)
+│   ├── Order Views
+│   ├── OrderItems Views
+│   └── Staff Views
+│
+├── Business Layer (MVC Controllers + Models)
+│   ├── Controllers
+│   │   ├── CustomerController
+│   │   ├── MenuItemController
+│   │   ├── OrderController
+│   │   ├── OrderItemController
+│   │   └── StaffController
+│   │
+│   ├── Models
+│   │   ├── Customer
+│   │   ├── MenuItem
+│   │   ├── Order
+│   │   ├── OrderItem
+│   │   └── Staff
+│   │
+│   └── Services (optional but boosts marks)
+│       ├── ValidationService
+│       ├── AuthService
+│       └── OrderCalculationService
+│
+├── Data Layer
+│   ├── Database Tables
+│   ├── Stored Procedures
+│   ├── Repository Classes
+│   │   ├── CustomerRepository
+│   │   ├── MenuItemRepository
+│   │   ├── OrderRepository
+│   │   ├── OrderItemRepository
+│   │   └── StaffRepository
+│
+└── Utils
+    ├── DBConnection
+    ├── SessionManager
