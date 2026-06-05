@@ -1,533 +1,254 @@
-
 <?php
-session_start();
+
+/*
+    Main order item management page
+    -------------------------------
+    This page lets the user add new order items, search existing items,
+    and view all records in one table. It is useful as the main CRUD page
+    for the Smart Meal order item management system.
+*/
+
+// Load the database connection so this page can read and write MySQL records.
+require_once __DIR__ . "/../config/db.php";
+
+// Load the model class that contains all order item database functions.
+require_once __DIR__ . "/../models/orderModel.php";
+
+// Load shared validation helpers so add/update rules stay consistent.
+require_once __DIR__ . "/../config/validation.php";
+
+// Create the model object and pass the active database connection to it.
+$model = new OrderModel($conn);
+
+// This variable stores success or error messages shown at the top of the page.
+$message = "";
+
+// These values must match the ENUM values in the database status column.
+// Keeping them in one array makes it easy to reuse them in forms and validation.
+$allowedStatuses = ["Pending", "Processed", "Cancelled"];
+
+// Read the search keyword from the URL. If there is no keyword, use an empty string.
+$keyword = trim($_GET["keyword"] ?? "");
+
+// Read the selected status filter from the URL. The filter is optional.
+$statusFilter = trim($_GET["status_filter"] ?? "");
+
+// If someone changes the URL manually to an invalid status, ignore it safely.
+if ($statusFilter !== "" && !in_array($statusFilter, $allowedStatuses, true)) {
+    $statusFilter = "";
+}
+
+/*
+    Add form processing
+    -------------------
+    This block runs only after the user submits the Add Order Item form.
+    It reads form values, validates them, and inserts the record if valid.
+*/
+if (isset($_POST["add_order"])) {
+    $itemName = trim($_POST["item_name"] ?? "");
+    $quantity = filter_input(INPUT_POST, "quantity", FILTER_VALIDATE_INT);
+    $price = filter_input(INPUT_POST, "price", FILTER_VALIDATE_FLOAT);
+
+    // Read the DATE and ENUM values from the add form.
+    $orderDate = trim($_POST["order_date"] ?? "");
+    $status = trim($_POST["status"] ?? "");
+
+    // Validate all form fields before saving them into MySQL.
+    $errors = validateOrderInput($itemName, $quantity, $price, $orderDate, $status);
+
+    // If validation returns errors, show those errors and do not insert into database.
+    if (!empty($errors)) {
+        $message = getFirstValidationMessage($errors);
+    } elseif ($model->addOrder($itemName, $quantity, $price, $orderDate, $status)) {
+        // Redirect after successful insert to prevent duplicate form submission on refresh.
+        header("Location: index.php?message=added");
+        exit();
+    } else {
+        $message = "Error adding order item: " . $conn->error;
+    }
+}
+
+// Show success message after redirecting from a successful insert.
+if (isset($_GET["message"]) && $_GET["message"] === "added") {
+    $message = "Order item added successfully.";
+}
+
+// If search or filter values exist, show matching records.
+// Otherwise show every order item from the database.
+if ($keyword !== "" || $statusFilter !== "") {
+    $result = $model->searchOrder($keyword, $statusFilter);
+} else {
+    $result = $model->getOrders();
+}
+
 ?>
-
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Meal Order Item Management</title>
 
-<title>SmartMeal - Food Ordering System</title>
-
-<style>
-
-/* ===============================
-   GLOBAL STYLES
-================================= */
-
-*{
-    margin:0;
-    padding:0;
-    box-sizing:border-box;
-    font-family: Arial, sans-serif;
-}
-
-body{
-    background:#f5f5f5;
-    color:#333;
-}
-
-/* ===============================
-   NAVBAR
-================================= */
-
-.navbar{
-    width:100%;
-    background:white;
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    padding:15px 50px;
-    box-shadow:0 2px 10px rgba(0,0,0,0.1);
-    position:sticky;
-    top:0;
-    z-index:100;
-}
-
-.logo{
-    display:flex;
-    align-items:center;
-}
-
-.logo img{
-    width:70px;
-    margin-right:10px;
-}
-
-.logo h1{
-    font-size:38px;
-    color:#28a745;
-}
-
-.logo span{
-    color:#ff6600;
-}
-
-.nav-links{
-    list-style:none;
-    display:flex;
-}
-
-.nav-links li{
-    margin-left:30px;
-}
-
-.nav-links a{
-    text-decoration:none;
-    color:#333;
-    font-size:18px;
-    transition:0.3s;
-}
-
-.nav-links a:hover{
-    color:#ff6600;
-}
-
-/* ===============================
-   HERO SECTION
-================================= */
-
-.hero{
-    width:100%;
-    min-height:90vh;
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    padding:50px;
-    background:linear-gradient(to right,#fff,#f7fff7);
-}
-
-.hero-text{
-    width:50%;
-}
-
-.hero-text h2{
-    font-size:65px;
-    margin-bottom:20px;
-}
-
-.hero-text h2 span{
-    color:#ff6600;
-}
-
-.hero-text p{
-    font-size:20px;
-    line-height:1.8;
-    margin-bottom:30px;
-    color:#555;
-}
-
-.hero-buttons a{
-    display:inline-block;
-    padding:15px 35px;
-    margin-right:15px;
-    border-radius:50px;
-    text-decoration:none;
-    font-size:18px;
-    transition:0.3s;
-}
-
-.btn-order{
-    background:#28a745;
-    color:white;
-}
-
-.btn-order:hover{
-    background:#1e7e34;
-}
-
-.btn-menu{
-    border:2px solid #28a745;
-    color:#28a745;
-}
-
-.btn-menu:hover{
-    background:#28a745;
-    color:white;
-}
-
-.hero-image{
-    width:45%;
-}
-
-.hero-image img{
-    width:100%;
-}
-
-/* ===============================
-   LOGIN SECTION
-================================= */
-
-.login-section{
-    padding:80px 50px;
-    background:#fff;
-}
-
-.section-title{
-    text-align:center;
-    font-size:45px;
-    margin-bottom:50px;
-    color:#28a745;
-}
-
-.login-container{
-    display:flex;
-    justify-content:center;
-    gap:40px;
-    flex-wrap:wrap;
-}
-
-.login-card{
-    width:400px;
-    background:white;
-    padding:35px;
-    border-radius:20px;
-    box-shadow:0 5px 20px rgba(0,0,0,0.1);
-    transition:0.3s;
-}
-
-.login-card:hover{
-    transform:translateY(-8px);
-}
-
-.login-card h3{
-    font-size:30px;
-    margin-bottom:25px;
-    text-align:center;
-}
-
-.customer{
-    border-top:6px solid #28a745;
-}
-
-.staff{
-    border-top:6px solid #ff6600;
-}
-
-.login-card input{
-    width:100%;
-    padding:15px;
-    margin-bottom:20px;
-    border:1px solid #ccc;
-    border-radius:10px;
-    font-size:16px;
-}
-
-.login-card button{
-    width:100%;
-    padding:15px;
-    border:none;
-    border-radius:10px;
-    font-size:18px;
-    cursor:pointer;
-    transition:0.3s;
-}
-
-.customer button{
-    background:#28a745;
-    color:white;
-}
-
-.customer button:hover{
-    background:#1e7e34;
-}
-
-.staff button{
-    background:#ff6600;
-    color:white;
-}
-
-.staff button:hover{
-    background:#e65c00;
-}
-
-/* ===============================
-   FEATURES
-================================= */
-
-.features{
-    padding:80px 50px;
-    background:#f8f8f8;
-}
-
-.feature-container{
-    display:flex;
-    justify-content:center;
-    gap:30px;
-    flex-wrap:wrap;
-}
-
-.feature-box{
-    width:280px;
-    background:white;
-    padding:30px;
-    border-radius:15px;
-    text-align:center;
-    box-shadow:0 4px 15px rgba(0,0,0,0.1);
-    transition:0.3s;
-}
-
-.feature-box:hover{
-    transform:translateY(-5px);
-}
-
-.feature-box h4{
-    margin:20px 0;
-    font-size:24px;
-    color:#28a745;
-}
-
-.feature-box p{
-    color:#555;
-    line-height:1.6;
-}
-
-/* ===============================
-   FOOTER
-================================= */
-
-footer{
-    background:#222;
-    color:white;
-    text-align:center;
-    padding:25px;
-}
-
-/* ===============================
-   RESPONSIVE DESIGN
-================================= */
-
-@media(max-width:900px){
-
-    .hero{
-        flex-direction:column;
-        text-align:center;
-    }
-
-    .hero-text{
-        width:100%;
-        margin-bottom:40px;
-    }
-
-    .hero-image{
-        width:100%;
-    }
-
-    .hero-text h2{
-        font-size:45px;
-    }
-
-    .navbar{
-        flex-direction:column;
-    }
-
-    .nav-links{
-        margin-top:20px;
-    }
-}
-
-</style>
-
+    <!-- Link CSS file from assets folder. -->
+    <link rel="stylesheet" href="../assets/style.css">
 </head>
 
 <body>
 
-<!-- ===========================
-     NAVBAR
-=========================== -->
-
-<div class="navbar">
-
-    <div class="logo">
-
-        <!-- PUT YOUR LOGO FILE HERE -->
-        <img src="logo.png" alt="SmartMeal Logo">
-
-        <h1>Smart<span>Meal</span></h1>
-
+<header class="dashboard-navbar">
+    <div class="nav-brand">
+        <strong>Smart Meal</strong>
+        <span>Order Dashboard</span>
     </div>
 
-    <ul class="nav-links">
-        <li><a href="#">Home</a></li>
-        <li><a href="#login">Login</a></li>
-        <li><a href="#features">Features</a></li>
-        <li><a href="#">Contact</a></li>
-    </ul>
+    <nav>
+        <a class="active" href="/smart-meal/public/index.php">Dashboard</a>
+        <a href="/smart-meal/views/add.php">Add</a>
+        <a href="/smart-meal/views/view.php">View</a>
+        <a href="/smart-meal/views/search.php">Search</a>
+        <a href="/smart-meal/views/menu.php">Menu</a>
+        <a href="/smart-meal/views/policy.php">Policy</a>
+    </nav>
+</header>
 
-</div>
+<main class="dashboard-main">
+<h1>Smart Meal Order Item Management</h1>
 
-<!-- ===========================
-     HERO SECTION
-=========================== -->
+<!-- Top navigation links for moving between website, dashboard, menu, and policy pages. -->
+<p class="actions">
+    <a href="/smart-meal/views/dashboard.php">Main Dashboard</a>
+    <a href="/smart-meal/views/add.php">Add Order Item</a>
+    <a href="/smart-meal/views/view.php">Edit or Delete Items</a>
+    <a href="/smart-meal/views/menu.php">Website Menu</a>
+    <a href="/smart-meal/views/policy.php">Policy</a>
+</p>
 
-<section class="hero">
+<!-- Show a success or validation/database error message when needed. -->
+<?php if ($message !== ""): ?>
+    <p class="message"><?php echo htmlspecialchars($message); ?></p>
+<?php endif; ?>
 
-    <div class="hero-text">
+<!-- Add Order Item Section: this form creates a new order item record. -->
+<section class="page-section">
+    <h2>Add Order Item</h2>
 
-        <h2>
-            Delicious Food Delivered with 
-            <span>SmartMeal</span>
-        </h2>
+    <form method="POST" action="index.php">
+        <label>Item Name</label>
+        <input type="text" name="item_name" minlength="2" maxlength="100" required>
 
-        <p>
-            Order your favorite meals online quickly and easily.
-            SmartMeal helps customers enjoy delicious food
-            with fast delivery and simple ordering.
-        </p>
+        <label>Quantity</label>
+        <input type="number" name="quantity" min="1" required>
 
-        <div class="hero-buttons">
+        <label>Price</label>
+        <input type="number" name="price" min="0.01" max="9999.99" step="0.01" required>
 
-            <a href="#" class="btn-order">
-                Order Now
-            </a>
+        <label>Order Date</label>
+        <input type="date" name="order_date" required>
 
-            <a href="#" class="btn-menu">
-                View Menu
-            </a>
+        <label>Status</label>
+        <select name="status" required>
+            <option value="">Select status</option>
+            <option value="Pending">Pending</option>
+            <option value="Processed">Processed</option>
+            <option value="Cancelled">Cancelled</option>
+        </select>
 
-        </div>
-
-    </div>
-
-    <div class="hero-image">
-
-        <!-- FOOD IMAGE -->
-        <img src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?q=80&w=1200&auto=format&fit=crop">
-
-    </div>
-
+        <input type="submit" name="add_order" value="Add Order Item">
+    </form>
 </section>
 
-<!-- ===========================
-     LOGIN SECTION
-=========================== -->
+<!-- Search and Filter Order Item Section: this form filters the table by item name and status. -->
+<section class="page-section">
+    <h2>Search and Filter Order Item</h2>
 
-<section class="login-section" id="login">
+    <form method="GET" action="index.php">
+        <label>Search</label>
+        <input
+            type="text"
+            name="keyword"
+            placeholder="Enter item name"
+            value="<?php echo htmlspecialchars($keyword); ?>"
+        >
 
-    <h2 class="section-title">
-        Login Portal
-    </h2>
+        <label>Status Filter</label>
+        <select name="status_filter">
+            <option value="">All statuses</option>
+            <!-- Print one dropdown option for each allowed status value. -->
+            <?php foreach ($allowedStatuses as $statusOption): ?>
+                <option value="<?php echo htmlspecialchars($statusOption); ?>" <?php echo $statusFilter === $statusOption ? "selected" : ""; ?>>
+                    <?php echo htmlspecialchars($statusOption); ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
 
-    <div class="login-container">
+        <input type="submit" value="Apply Filter">
+    </form>
 
-        <!-- CUSTOMER LOGIN -->
+    <?php if ($keyword !== "" || $statusFilter !== ""): ?>
+        <!-- Selected filter chips show the user which filters are active. -->
+        <div class="filter-chips">
+            <?php if ($keyword !== ""): ?>
+                <span class="filter-chip">Search: <?php echo htmlspecialchars($keyword); ?></span>
+            <?php endif; ?>
 
-        <div class="login-card customer">
+            <?php if ($statusFilter !== ""): ?>
+                <span class="filter-chip">Status: <?php echo htmlspecialchars($statusFilter); ?></span>
+            <?php endif; ?>
 
-            <h3>Customer Login</h3>
-
-           <form action="staff_admin_login.php" method="POST">
-
-    <input type="email"
-           name="email"
-           placeholder="Staff/Admin Email"
-           required>
-
-    <input type="password"
-           name="password"
-           placeholder="Password"
-           required>
-
-    <button type="submit">
-        Secure Staff Login
-    </button>
-
-</form>
-
+            <a class="clear-filter" href="index.php">Clear filters</a>
         </div>
+    <?php endif; ?>
 
-        <!-- STAFF / ADMIN LOGIN -->
-
-        <div class="login-card staff">
-
-            <h3>Staff / Admin Login</h3>
-
-            <form action="staff_admin_login.php" method="POST">
-
-                <input type="email"
-                       name="email"
-                       placeholder="Staff/Admin Email"
-                       required>
-
-                <input type="password"
-                       name="password"
-                       placeholder="Password"
-                       required>
-
-                <button type="submit">
-                    Secure Staff Login
-                </button>
-
-            </form>
-
-        </div>
-
-    </div>
-
-</section>
-
-<!-- ===========================
-     FEATURES SECTION
-=========================== -->
-
-<section class="features" id="features">
-
-    <h2 class="section-title">
-        Why Choose SmartMeal?
-    </h2>
-
-    <div class="feature-container">
-
-        <div class="feature-box">
-
-            <h4>Fast Delivery</h4>
-
-            <p>
-                Get your favorite meals delivered quickly
-                to your doorstep.
-            </p>
-
-        </div>
-
-        <div class="feature-box">
-
-            <h4>Fresh Food</h4>
-
-            <p>
-                Enjoy fresh and delicious food
-                prepared every day.
-            </p>
-
-        </div>
-
-        <div class="feature-box">
-
-            <h4>Secure System</h4>
-
-            <p>
-                Protected customer and staff login
-                with secure authentication.
-            </p>
-
-        </div>
-
-    </div>
-
-</section>
-
-<!-- ===========================
-     FOOTER
-=========================== -->
-
-<footer>
-
-    <p>
-        © 2026 SmartMeal Food Ordering System
+    <p class="actions">
+        <a href="index.php">Show All Records</a>
+        <a href="../views/add.php">Open Add Page</a>
+        <a href="../views/view.php">Open View Page</a>
+        <a href="../views/search.php">Open Search Page</a>
     </p>
+</section>
 
-</footer>
+<!-- View Order Item Section: this table displays existing database records. -->
+<section class="page-section">
+    <h2>Order Item List</h2>
 
+    <table>
+        <tr>
+            <th>ID</th>
+            <th>Item Name</th>
+            <th>Quantity</th>
+            <th>Price</th>
+            <th>Order Date</th>
+            <th>Status</th>
+            <th>Subtotal</th>
+            <th>Edit</th>
+            <th>Delete</th>
+        </tr>
+
+        <?php if ($result && $result->num_rows > 0): ?>
+            <?php while ($row = $result->fetch_assoc()): ?>
+                <!-- Escape output with htmlspecialchars to avoid printing unsafe HTML. -->
+                <tr>
+                    <td><?php echo htmlspecialchars($row["id"]); ?></td>
+                    <td><?php echo htmlspecialchars($row["item_name"]); ?></td>
+                    <td><?php echo htmlspecialchars($row["quantity"]); ?></td>
+                    <td><?php echo htmlspecialchars($row["price"]); ?></td>
+                    <td><?php echo htmlspecialchars($row["order_date"]); ?></td>
+                    <td><?php echo htmlspecialchars($row["status"]); ?></td>
+                    <td><?php echo htmlspecialchars($row["quantity"] * $row["price"]); ?></td>
+                    <td>
+                        <a href="../views/edit.php?id=<?php echo urlencode($row["id"]); ?>">Edit</a>
+                    </td>
+                    <td>
+                        <a class="delete-link" href="../views/delete.php?id=<?php echo urlencode($row["id"]); ?>">Delete</a>
+                    </td>
+                </tr>
+            <?php endwhile; ?>
+        <?php else: ?>
+            <tr>
+                <td colspan="9">No records found</td>
+            </tr>
+        <?php endif; ?>
+    </table>
+</section>
+
+</main>
 </body>
 </html>
